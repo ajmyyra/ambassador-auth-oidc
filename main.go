@@ -17,6 +17,7 @@ func init() {
 	checkEnvURL("SELF_URL")
 	checkEnvURL("TOKEN_URL")
 	checkEnvURL("USERINFO_URL")
+	checkEnvVar("OIDC_SCOPES")
 	checkEnvVar("CLIENT_ID")
 	checkEnvVar("CLIENT_SECRET")
 
@@ -34,7 +35,7 @@ func checkEnvURL(URLEnv string) bool {
 		log.Print("Not a valid URL for env variable ", URLEnv, ": ", envContent, "\n")
 		panic(err)
 	}
-	log.Print("Setting env var ", URLEnv, ": ", parsedURL, "\n")
+	log.Print("Setting from env var ", URLEnv, ": ", parsedURL, "\n")
 
 	return true
 }
@@ -54,6 +55,7 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	router := mux.NewRouter()
 	router.HandleFunc("/healthz", HealthHandler)
+	router.HandleFunc("/login/oidc", OIDCHandler)
 	router.HandleFunc("/", AuthReqHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
