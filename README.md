@@ -10,4 +10,4 @@ Currently we only support OIDC's [Authorization Code Flow](http://openid.net/spe
 
 ## Example auth flow
 
-TODO
+TODO, DO NOT USE THIS YET
