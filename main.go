@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/gorilla/mux"
@@ -11,22 +12,48 @@ import (
 var port string
 
 func init() {
+
+	checkEnvURL("AUTH_URL")
+	checkEnvURL("SELF_URL")
+	checkEnvURL("TOKEN_URL")
+	checkEnvURL("USERINFO_URL")
+	checkEnvVar("CLIENT_ID")
+	checkEnvVar("CLIENT_SECRET")
+
 	port := os.Getenv("PORT")
 	if len(port) == 0 {
 		log.Println("No port specified, using 8080 as default.")
-		port = "8080" // default value if no port is set
+		port = "8080" // default value if no PORT env variable is set
 	}
+}
 
-	if len(os.Getenv("CLIENT_ID")) == 0 {
-		log.Fatal("No CLIENT_ID specified, exiting.")
+func checkEnvURL(URLEnv string) bool {
+	envContent := os.Getenv(URLEnv)
+	parsedURL, err := url.ParseRequestURI(envContent)
+	if err != nil {
+		log.Print("Not a valid URL for env variable ", URLEnv, ": ", envContent, "\n")
+		panic(err)
 	}
-	if len(os.Getenv("CLIENT_SECRET")) == 0 {
-		log.Fatal("No CLIENT_SECRET specified, exiting.")
+	log.Print("Setting env var ", URLEnv, ": ", parsedURL, "\n")
+
+	return true
+}
+
+func checkEnvVar(envVar string) {
+	if len(os.Getenv(envVar)) == 0 {
+		log.Fatal("Env variable ", envVar, " missing, exiting.")
 	}
+}
+
+// HealthHandler responds to /healthz endpoint for application monitoring
+func HealthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func main() {
 	router := mux.NewRouter()
+	router.HandleFunc("/healthz", HealthHandler)
 	router.HandleFunc("/", AuthReqHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
