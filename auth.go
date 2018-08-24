@@ -4,17 +4,9 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 )
-
-var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 // AuthReqHandler processes all incoming requests
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
@@ -25,21 +17,39 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Authorization header found.")
 		// TODO actually check the header..
 		// add userinfo header and return 200 OK
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Debug OK!"))
+
+		// TODO if actually correct, attach userinfo object as X-Auth-Userinfo header
+		returnStatus(w, 200, "OK")
 	}
 }
 
 // OIDCHandler processes AuthN responses from OpenID Provider, exchanges token to userinfo and establishes user session
 func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	authCode := r.FormValue("code")
-	state := r.FormValue("state")
+	if len(authCode) == 0 {
+		log.Println("Missing url parameter: code")
+		returnStatus(w, 400, "Missing url parameter: code")
+	} // TODO execution does not end here, make it so.
 
-	log.Println("Received authcode", authCode, "with state", state)
-	// TODO check state from db & remove used state
+	state := r.FormValue("state")
+	if len(state) == 0 {
+		log.Println("Missing url parameter: state")
+		returnStatus(w, 400, "Missing url parameter: state")
+	}
+
+	log.Println("Received authcode", authCode, "with state", state) //debug
+
+	destination, err := redisdb.Get(state).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("State found, would forward to", destination) //debug
+
 	// TODO exchange code to userinfo with client id/secret
 	// TODO create token for user and save it with userinfo
 	// TODO return user token along with redirect to original resource
+	// TODO remove used state
 }
 
 func createNonce(length int) string {
@@ -51,27 +61,20 @@ func createNonce(length int) string {
 	return string(nonce)
 }
 
-func parseURL(rawURL string) string {
-	parsedURL, err := url.ParseRequestURI(rawURL)
-	if err != nil {
-		log.Println("Not a valid URL:", rawURL)
-		panic(err)
-	}
-	return parsedURL.String()
-}
-
 func redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	state := createNonce(8)
-	// TODO check for existing & save state to db for later checking
-	// TODO save full URL with state, key-value
+	err := redisdb.Set(state, r.Host+r.URL.Path, time.Hour).Err()
+	if err != nil {
+		panic(err)
+	}
 
-	callbackURL := parseURL(os.Getenv("SELF_URL")) + "/login/oidc"
+	callbackURL := selfURL.String() + "/login/oidc"
 
-	redirectURL := strings.Join([]string{parseURL(os.Getenv("AUTH_URL")), "?response_type=code&client_id=", os.Getenv("CLIENT_ID"), "&redirect_uri=", callbackURL, "&scope=", strings.Replace(os.Getenv("OIDC_SCOPES"), " ", "%20", -1), "&state=", state}, "")
+	redirectURL := strings.Join([]string{authURL.String(), "?response_type=code&client_id=", clientID, "&redirect_uri=", callbackURL, "&scope=", strings.Replace(oidcScopes, " ", "%20", -1), "&state=", state}, "")
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
-func returnError(w http.ResponseWriter, errorCode int, errorMsg string) {
-	w.WriteHeader(errorCode)
+func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
+	w.WriteHeader(statusCode)
 	w.Write([]byte(errorMsg))
 }
