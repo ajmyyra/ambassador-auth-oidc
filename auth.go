@@ -4,15 +4,16 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"strings"
 	"time"
 )
+
+var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 // AuthReqHandler processes all incoming requests
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 	if len(r.Header.Get("Authorization")) == 0 { // No auth header set
 		log.Println("Authorization header missing, redirecting to login page.")
-		redirectToLogin(w, r)
+		redirectToLogin(w, r, r.Host+r.URL.Path)
 	} else {
 		log.Println("Authorization header found.")
 		// TODO actually check the header..
@@ -29,27 +30,66 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	if len(authCode) == 0 {
 		log.Println("Missing url parameter: code")
 		returnStatus(w, 400, "Missing url parameter: code")
-	} // TODO execution does not end here, make it so.
+		return
+	}
 
 	state := r.FormValue("state")
 	if len(state) == 0 {
 		log.Println("Missing url parameter: state")
 		returnStatus(w, 400, "Missing url parameter: state")
+		return
 	}
-
-	log.Println("Received authcode", authCode, "with state", state) //debug
 
 	destination, err := redisdb.Get(state).Result()
 	if err != nil {
+		if err.Error() == "redis: nil" { // State didn't exist, redirecting to new login
+			log.Print("No state found with ", state, ", starting new auth session.\n")
+			redirectToLogin(w, r, "/")
+			return
+		}
+
+		// TODO This is not reached for some reason, just given empty response
+		returnStatus(w, 500, "Error fetching state from DB.")
 		panic(err)
 	}
 
 	log.Println("State found, would forward to", destination) //debug
 
-	// TODO exchange code to userinfo with client id/secret
-	// TODO create token for user and save it with userinfo
-	// TODO return user token along with redirect to original resource
-	// TODO remove used state
+	oauth2Token, err := oauth2Config.Exchange(ctx, authCode)
+	if err != nil {
+		returnStatus(w, http.StatusInternalServerError, "Failed to exchange token.")
+		log.Fatal(err)
+	}
+
+	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+	if !ok {
+		returnStatus(w, http.StatusInternalServerError, "No id_token field in OAuth 2.0 token.")
+		log.Fatal(err)
+	}
+
+	log.Println(rawIDToken)
+	verifier := oidcProvider.Verifier(oidcConfig)
+	idToken, err := verifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		returnStatus(w, http.StatusInternalServerError, "Unable to verify ID token.")
+		log.Fatal(err)
+	}
+
+	log.Println("Audience:", idToken.Audience)  //debug
+	log.Println("Issuer:", idToken.Issuer)      //debug
+	log.Println("Subject:", idToken.Subject)    //debug
+	log.Println("Expiry:", idToken.Expiry)      //debug
+	log.Println("Issued at:", idToken.IssuedAt) //debug
+
+	// TODO fetch userinfo and either save to Redis or to JWT (if used)
+
+	// TODO create token for user as JWT(?)
+	// TODO return user token along with redirect to original resource (if possible?)
+
+	err = redisdb.Del(state).Err()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func createNonce(length int) string {
@@ -61,17 +101,14 @@ func createNonce(length int) string {
 	return string(nonce)
 }
 
-func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+func redirectToLogin(w http.ResponseWriter, r *http.Request, origURL string) {
 	state := createNonce(8)
-	err := redisdb.Set(state, r.Host+r.URL.Path, time.Hour).Err()
+	err := redisdb.Set(state, origURL, time.Hour).Err()
 	if err != nil {
 		panic(err)
 	}
 
-	callbackURL := selfURL.String() + "/login/oidc"
-
-	redirectURL := strings.Join([]string{authURL.String(), "?response_type=code&client_id=", clientID, "&redirect_uri=", callbackURL, "&scope=", strings.Replace(oidcScopes, " ", "%20", -1), "&state=", state}, "")
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 }
 
 func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {

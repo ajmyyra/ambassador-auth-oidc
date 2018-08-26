@@ -1,46 +1,39 @@
 package main
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
+	oidc "github.com/coreos/go-oidc"
 	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
+	"golang.org/x/oauth2"
 )
 
 var port string
-var oidcScopes string
 var clientID string
 var clientSecret string
 
 var redisdb *redis.Client
-var redisAddr string
-var redisPwd string
 
-var authURL *url.URL
-var selfURL *url.URL
-var tokenURL *url.URL
-var userinfoURL *url.URL
-
-var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+var ctx context.Context
+var oauth2Config oauth2.Config
+var oidcProvider *oidc.Provider
+var oidcConfig *oidc.Config
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
 
-	authURL = parseEnvURL("AUTH_URL")
-	selfURL = parseEnvURL("SELF_URL")
-	tokenURL = parseEnvURL("TOKEN_URL")
-	userinfoURL = parseEnvURL("USERINFO_URL")
-
-	oidcScopes = parseEnvVar("OIDC_SCOPES")
 	clientID = parseEnvVar("CLIENT_ID")
 	clientSecret = parseEnvVar("CLIENT_SECRET")
-	redisAddr = parseEnvVar("REDIS_ADDRESS")
-	redisPwd = parseEnvVar("REDIS_PASSWORD")
+	redisAddr := parseEnvVar("REDIS_ADDRESS")
+	redisPwd := parseEnvVar("REDIS_PASSWORD")
 
 	port := os.Getenv("PORT")
 	if len(port) == 0 {
@@ -53,6 +46,38 @@ func init() {
 		Password: redisPwd,
 		DB:       0,
 	})
+
+	ctx = context.Background()
+
+	provider, err := oidc.NewProvider(ctx, parseEnvURL("OIDC_PROVIDER").String())
+	if err != nil {
+		log.Fatal("OIDC provider setup failed: ", err)
+	}
+
+	oidcConfig = &oidc.Config{
+		ClientID: clientID,
+	}
+
+	var oidcScopes []string
+
+	// "openid" (oidc.ScopeOpenID) is a required scope for OpenID Connect flows.
+	oidcScopes = append(oidcScopes, oidc.ScopeOpenID)
+	for _, elem := range strings.Split(parseEnvVar("OIDC_SCOPES"), " ") {
+		oidcScopes = append(oidcScopes, elem)
+	}
+
+	oauth2Config = oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  parseEnvURL("SELF_URL").String() + "/login/oidc",
+
+		// Discovery returns the OAuth2 endpoints.
+		Endpoint: provider.Endpoint(),
+
+		Scopes: oidcScopes,
+	}
+
+	oidcProvider = provider
 }
 
 func parseEnvURL(URLEnv string) *url.URL {
