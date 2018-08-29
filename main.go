@@ -17,8 +17,7 @@ import (
 )
 
 var port string
-var clientID string
-var clientSecret string
+var hostname string
 
 var redisdb *redis.Client
 
@@ -30,10 +29,11 @@ var oidcConfig *oidc.Config
 func init() {
 	rand.Seed(time.Now().UnixNano())
 
-	clientID = parseEnvVar("CLIENT_ID")
-	clientSecret = parseEnvVar("CLIENT_SECRET")
+	clientID := parseEnvVar("CLIENT_ID")
+	clientSecret := parseEnvVar("CLIENT_SECRET")
 	redisAddr := parseEnvVar("REDIS_ADDRESS")
 	redisPwd := parseEnvVar("REDIS_PASSWORD")
+	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has port if it was in URL
 
 	port := os.Getenv("PORT")
 	if len(port) == 0 {
@@ -110,6 +110,7 @@ func main() {
 	router := mux.NewRouter()
 	router.HandleFunc("/healthz", HealthHandler)
 	router.HandleFunc("/login/oidc", OIDCHandler)
+	router.HandleFunc("/login", LoginHandler)
 	router.HandleFunc("/", AuthReqHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
