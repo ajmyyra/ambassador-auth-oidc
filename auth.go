@@ -45,13 +45,12 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
 	} else { // TODO actually validate the securecookie
 
-		// For securecookie validation
+		// For securecookie content validation
 		// log.Println("Decoded:")
 		// var value []byte
 		// secCookie.Decode("userinfo", cookie.Value, &value)
 		// log.Println(string(value[:]))
 
-		log.Println("Authorization header found.") //debug
 		cookieHash := hashString(cookie.Value)
 
 		userInfoClaims, err := redisdb.Get(cookieHash).Result()
@@ -61,12 +60,13 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if cookie.Expires.After(time.Now()) {
+		if cookie.Expires.Before(time.Now()) {
 			log.Println("Session in DB, but has expired:", cookieHash)
 			returnStatus(w, http.StatusForbidden, "Session has expired.")
 			return
 		}
 
+		log.Println("Validated and accepted a request to", r.URL.String()) // TODO add user from userinfo
 		w.Header().Set("X-Auth-Userinfo", userInfoClaims)
 		returnStatus(w, 200, "OK")
 	}
@@ -132,6 +132,9 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	u := reflect.ValueOf(userInfo)
 	claims := reflect.Indirect(u).FieldByName("claims").Bytes() // Userinfo claims
 
+	// If the pull request to coreos/go-oidc goes through
+	// claims, err := userInfo.DecodedClaimsJSON() // claims string is base64-encoded
+
 	cookie := createSecureCookie(claims, idToken.Expiry, hostname)
 
 	// Removing OIDC flow state from DB
@@ -149,6 +152,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Println("Login validated with ID token, redirecting with cookie.") // TODO add user from userinfo
 	http.SetCookie(w, cookie)
 	http.Redirect(w, r, destination, http.StatusFound)
 }

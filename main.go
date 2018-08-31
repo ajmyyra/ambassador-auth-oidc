@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	oidc "github.com/coreos/go-oidc"
+	oidc "github.com/ajmyyra/go-oidc"
 	"github.com/go-redis/redis"
 	"github.com/gorilla/mux"
 	"golang.org/x/oauth2"
@@ -111,7 +111,8 @@ func main() {
 	router.HandleFunc("/healthz", HealthHandler)
 	router.HandleFunc("/login/oidc", OIDCHandler)
 	router.HandleFunc("/login", LoginHandler)
-	router.HandleFunc("/", AuthReqHandler)
+	// router.HandleFunc("/logout", LogoutHandler) // TODO
+	router.HandleFunc("/", AuthReqHandler) // TODO convert to wildcard
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
