@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"log"
@@ -8,20 +9,76 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
+	oidc "github.com/coreos/go-oidc"
+	"github.com/go-redis/redis"
 	"github.com/gorilla/securecookie"
 	"golang.org/x/oauth2"
 )
+
+var hostname string
+var redisdb *redis.Client
+var ctx context.Context
+var oauth2Config oauth2.Config
+var oidcProvider *oidc.Provider
+var oidcConfig *oidc.Config
 
 var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 var secCookie *securecookie.SecureCookie
 
 func init() {
+	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has port if it was in URL
+
+	redisAddr := parseEnvVar("REDIS_ADDRESS")
+	redisPwd := parseEnvVar("REDIS_PASSWORD")
+	redisdb = redis.NewClient(&redis.Options{
+		Addr:     redisAddr,
+		Password: redisPwd,
+		DB:       0,
+	})
+
+	rand.Seed(time.Now().UnixNano())
+
+	clientID := parseEnvVar("CLIENT_ID")
+	clientSecret := parseEnvVar("CLIENT_SECRET")
 
 	var hashKey = getSecureValue("SEC_HASHKEY", 64)
 	var blockKey = getSecureValue("SEC_BLOCKKEY", 32)
 	secCookie = securecookie.New(hashKey, blockKey)
+
+	ctx = context.Background()
+
+	provider, err := oidc.NewProvider(ctx, parseEnvURL("OIDC_PROVIDER").String())
+	if err != nil {
+		log.Fatal("OIDC provider setup failed: ", err)
+	}
+
+	oidcConfig = &oidc.Config{
+		ClientID: clientID,
+	}
+
+	var oidcScopes []string
+
+	// "openid" (oidc.ScopeOpenID) is a required scope for OpenID Connect flows.
+	oidcScopes = append(oidcScopes, oidc.ScopeOpenID)
+	for _, elem := range strings.Split(parseEnvVar("OIDC_SCOPES"), " ") {
+		oidcScopes = append(oidcScopes, elem)
+	}
+
+	oauth2Config = oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  parseEnvURL("SELF_URL").String() + "/login/oidc",
+
+		// Discovery returns the OAuth2 endpoints.
+		Endpoint: provider.Endpoint(),
+
+		Scopes: oidcScopes,
+	}
+
+	oidcProvider = provider
 }
 
 // LoginHandler processes login requests
