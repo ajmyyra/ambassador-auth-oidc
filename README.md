@@ -10,4 +10,8 @@ Currently we only support OIDC's [Authorization Code Flow](http://openid.net/spe
 
 ## Example auth flow
 
-TODO, DO NOT USE THIS YET
+TODO
+
+## Current status
+
+WIP, missing logout. Should not be used in production.
