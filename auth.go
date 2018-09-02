@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -86,27 +86,25 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	beginOIDCLogin(w, r, "/")
 }
 
-// AuthReqHandler processes all incoming requests
+// AuthReqHandler processes all incoming requests by default, unless specific endpoint is mentioned
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO CORS check, others?
+	// TODO add user from userinfo to logs
 
 	cookie, err := r.Cookie("auth")
 	if err != nil {
 		log.Println("Cookie not set, redirecting to login.")
-		beginOIDCLogin(w, r, r.Host+r.URL.Path)
+		beginOIDCLogin(w, r, r.URL.Path)
 		return
 	}
 
 	if len(cookie.Value) == 0 { // No auth header set
-		log.Println("Empty authorization header, returning error 400.")
+		log.Println("Empty authorization header.")
 		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
-	} else { // TODO actually validate the securecookie
+	} else {
 
-		// For securecookie content validation
-		// log.Println("Decoded:")
-		// var value []byte
-		// secCookie.Decode("userinfo", cookie.Value, &value)
-		// log.Println(string(value[:]))
+		var cookieContent []byte
+		secCookie.Decode("userinfo", cookie.Value, &cookieContent)
 
 		cookieHash := hashString(cookie.Value)
 
@@ -117,15 +115,14 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if cookie.Expires.Before(time.Now()) {
-			log.Println("Session in DB, but has expired:", cookieHash)
-			returnStatus(w, http.StatusForbidden, "Session has expired.")
-			return
+		if strings.Compare(string(cookieContent[:]), userInfoClaims) == 0 {
+			log.Println("Validated and accepted a request to", r.URL.String())
+			w.Header().Set("X-Auth-Userinfo", userInfoClaims)
+			returnStatus(w, http.StatusOK, "OK")
+		} else {
+			log.Println("Cookie validation failed, cookie and DB differ.")
+			returnStatus(w, http.StatusForbidden, "Incorrect cookie.")
 		}
-
-		log.Println("Validated and accepted a request to", r.URL.String()) // TODO add user from userinfo
-		w.Header().Set("X-Auth-Userinfo", userInfoClaims)
-		returnStatus(w, 200, "OK")
 	}
 }
 
@@ -134,14 +131,14 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	var authCode = r.FormValue("code")
 	if len(authCode) == 0 {
 		log.Println("Missing url parameter: code")
-		returnStatus(w, 400, "Missing url parameter: code")
+		returnStatus(w, http.StatusBadRequest, "Missing url parameter: code")
 		return
 	}
 
 	var state = r.FormValue("state")
 	if len(state) == 0 {
 		log.Println("Missing url parameter: state")
-		returnStatus(w, 400, "Missing url parameter: state")
+		returnStatus(w, http.StatusBadRequest, "Missing url parameter: state")
 		return
 	}
 
@@ -154,8 +151,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// TODO This is not reached for some reason, just given empty response
-		returnStatus(w, 500, "Error fetching state from DB.")
+		returnStatus(w, http.StatusInternalServerError, "Error fetching state from DB.")
 		panic(err)
 	}
 
@@ -182,15 +178,15 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	userInfo, err := oidcProvider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
 	if err != nil {
 		log.Println("Problem fetching userinfo:", err.Error())
-		returnStatus(w, 500, "Not able to fetch userinfo.")
+		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo.")
 		return
 	}
 
-	u := reflect.ValueOf(userInfo)
-	claims := reflect.Indirect(u).FieldByName("claims").Bytes() // Userinfo claims
-
-	// If the pull request to coreos/go-oidc goes through
-	// claims, err := userInfo.DecodedClaimsJSON() // claims string is base64-encoded
+	claims := json.RawMessage{}
+	if err = userInfo.Claims(&claims); err != nil {
+		log.Println("Problem getting userinfo claims:", err.Error())
+		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo claims.")
+	}
 
 	cookie := createSecureCookie(claims, idToken.Expiry, hostname)
 
@@ -202,10 +198,10 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Hashing cookie value for key and saving claims to DB with it
 	cookieHash := hashString(cookie.Value)
-	err = redisdb.Set(cookieHash, claims, time.Until(cookie.Expires)).Err()
+	err = redisdb.Set(cookieHash, string(claims[:]), time.Until(cookie.Expires)).Err()
 	if err != nil {
 		log.Println("Problem saving sessions claims:", err.Error())
-		returnStatus(w, 500, "Problem setting cookie.")
+		returnStatus(w, http.StatusInternalServerError, "Problem setting cookie.")
 		return
 	}
 
