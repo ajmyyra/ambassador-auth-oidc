@@ -3,18 +3,21 @@ package main
 import (
 	"context"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/go-redis/redis"
-	"github.com/gorilla/securecookie"
+	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 )
 
@@ -26,7 +29,6 @@ var oidcProvider *oidc.Provider
 var oidcConfig *oidc.Config
 
 var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-var secCookie *securecookie.SecureCookie
 
 func init() {
 	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has port if it was in URL
@@ -43,10 +45,6 @@ func init() {
 
 	clientID := parseEnvVar("CLIENT_ID")
 	clientSecret := parseEnvVar("CLIENT_SECRET")
-
-	var hashKey = getSecureValue("SEC_HASHKEY", 64)
-	var blockKey = getSecureValue("SEC_BLOCKKEY", 32)
-	secCookie = securecookie.New(hashKey, blockKey)
 
 	ctx = context.Background()
 
@@ -102,20 +100,32 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Empty authorization header.")
 		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
 	} else {
+		// TODO check JWT validation and ditch Redis
 
-		var cookieContent []byte
-		secCookie.Decode("userinfo", cookie.Value, &cookieContent)
+		token, err := parseJWT(cookie.Value)
+		if err != nil {
+			log.Println("Problem validating JWT:", err.Error())
+			returnStatus(w, http.StatusBadRequest, "Malformed cookie.")
+			return
+		}
+
+		uifClaim, err := base64decode(getJWTClaim(token, "uif"))
+		if err != nil {
+			log.Println("Not able to decode base64 content:", err.Error())
+			returnStatus(w, http.StatusBadRequest, "Malformed cookie.")
+			return
+		}
 
 		cookieHash := hashString(cookie.Value)
 
-		userInfoClaims, err := redisdb.Get(cookieHash).Result()
+		userInfoClaims, err := redisdb.Get("cookie-" + cookieHash).Result()
 		if err != nil {
 			log.Println("Session not found for", cookieHash)
 			returnStatus(w, http.StatusForbidden, "Session not found.")
 			return
 		}
 
-		if strings.Compare(string(cookieContent[:]), userInfoClaims) == 0 {
+		if strings.Compare(string(uifClaim[:]), userInfoClaims) == 0 {
 			log.Println("Validated and accepted a request to", r.URL.String())
 			w.Header().Set("X-Auth-Userinfo", userInfoClaims)
 			returnStatus(w, http.StatusOK, "OK")
@@ -143,7 +153,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Getting original destination from DB with state
-	destination, err := redisdb.Get(state).Result()
+	destination, err := redisdb.Get("state-" + state).Result()
 	if err != nil {
 		if err.Error() == "redis: nil" { // State didn't exist, redirecting to new login
 			log.Print("No state found with ", state, ", starting new auth session.\n")
@@ -157,22 +167,25 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := oauth2Config.Exchange(ctx, authCode)
 	if err != nil {
+		log.Println("Failed to exchange token:", err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Failed to exchange token.")
-		log.Fatal(err)
+		return
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
+		log.Println("No id_token field available.")
 		returnStatus(w, http.StatusInternalServerError, "No id_token field in OAuth 2.0 token.")
-		log.Fatal(err)
+		return
 	}
 
 	// Verifying received ID token
 	verifier := oidcProvider.Verifier(oidcConfig)
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
+		log.Println("Not able to verify ID token:", err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Unable to verify ID token.")
-		log.Fatal(err)
+		return
 	}
 
 	userInfo, err := oidcProvider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
@@ -186,19 +199,20 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	if err = userInfo.Claims(&claims); err != nil {
 		log.Println("Problem getting userinfo claims:", err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo claims.")
+		return
 	}
 
-	cookie := createSecureCookie(claims, idToken.Expiry, hostname)
+	cookie := createCookie(claims, idToken.Expiry, hostname)
 
 	// Removing OIDC flow state from DB
-	err = redisdb.Del(state).Err()
+	err = redisdb.Del("state-" + state).Err()
 	if err != nil {
-		log.Fatal(err)
+		log.Println("WARNING: Unable to remove state from DB,", err.Error())
 	}
 
 	// Hashing cookie value for key and saving claims to DB with it
 	cookieHash := hashString(cookie.Value)
-	err = redisdb.Set(cookieHash, string(claims[:]), time.Until(cookie.Expires)).Err()
+	err = redisdb.Set("cookie-"+cookieHash, string(claims[:]), time.Until(cookie.Expires)).Err()
 	if err != nil {
 		log.Println("Problem saving sessions claims:", err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Problem setting cookie.")
@@ -213,7 +227,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 // beginOIDCLogin starts the login sequence by creating state and forwarding user to OIDC provider for verification
 func beginOIDCLogin(w http.ResponseWriter, r *http.Request, origURL string) {
 	var state = createNonce(8)
-	err := redisdb.Set(state, origURL, time.Hour).Err()
+	err := redisdb.Set("state-"+state, origURL, time.Hour).Err()
 	if err != nil {
 		panic(err)
 	}
@@ -226,15 +240,25 @@ func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
 	w.Write([]byte(errorMsg))
 }
 
-func createSecureCookie(userinfo []byte, expiration time.Time, domain string) *http.Cookie {
-	encoded, err := secCookie.Encode("userinfo", userinfo)
+func createCookie(userinfo []byte, expiration time.Time, domain string) *http.Cookie {
+
+	// JWT replacement
+	token := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims{
+		"jti": uuid.New().String(),
+		"iss": hostname,
+		"iat": time.Now().Unix(),
+		"exp": expiration.Unix(),
+		"uif": base64encode(userinfo), // TODO should this be encrypted instead?
+	})
+
+	tokenString, err := token.SignedString([]byte("foobar123")) // TODO change
 	if err != nil {
 		panic(err)
 	}
 
 	cookie := &http.Cookie{
 		Name:    "auth",
-		Value:   encoded,
+		Value:   tokenString,
 		Path:    "/",
 		Domain:  domain,
 		Expires: expiration,
@@ -252,23 +276,50 @@ func createNonce(length int) string {
 	return string(nonce)
 }
 
-func getSecureValue(envVar string, expectedLength int) []byte {
-	var envContent = os.Getenv(envVar)
+func parseJWT(tokenstr string) (*jwt.Token, error) {
+	token, err := jwt.Parse(tokenstr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
 
-	if len(envContent) == 0 {
-		log.Println("Variable", envVar, "not defined, creating a random one.")
-		return securecookie.GenerateRandomKey(expectedLength)
+		return []byte("foobar123"), nil // TODO change
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	if len(envContent) < expectedLength {
-		log.Println("WARNING: key", envVar, "smaller than expected length of", expectedLength)
+	if token.Valid {
+		return token, nil
 	}
 
-	return []byte(envContent)
+	return nil, errors.New("Token not valid")
+}
+
+func getJWTClaim(token *jwt.Token, claim string) string {
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		return claims[claim].(string)
+	}
+
+	return ""
 }
 
 func hashString(str string) string {
 	hasher := md5.New()
 	hasher.Write([]byte(str))
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func base64encode(data []byte) string {
+	str := base64.StdEncoding.EncodeToString(data)
+	return str
+}
+
+func base64decode(str string) ([]byte, error) {
+	arr, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return nil, err
+	}
+
+	return arr, nil
 }
