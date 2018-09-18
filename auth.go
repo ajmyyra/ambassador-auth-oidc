@@ -11,6 +11,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -29,9 +30,10 @@ var oidcProvider *oidc.Provider
 var oidcConfig *oidc.Config
 
 var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+var hmacSecret []byte
 
 func init() {
-	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has port if it was in URL
+	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has a port if it was in URL
 
 	redisAddr := parseEnvVar("REDIS_ADDRESS")
 	redisPwd := parseEnvVar("REDIS_PASSWORD")
@@ -40,6 +42,11 @@ func init() {
 		Password: redisPwd,
 		DB:       0,
 	})
+
+	_, err := redisdb.Ping().Result()
+	if err != nil {
+		log.Fatal("Problem connecting to Redis: ", err.Error())
+	}
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -77,6 +84,8 @@ func init() {
 	}
 
 	oidcProvider = provider
+
+	hmacSecret = initialiseHMACSecretFromEnv("JWT_HMAC_SECRET", 64) // 64 char key is needed for HS512
 }
 
 // LoginHandler processes login requests
@@ -242,16 +251,15 @@ func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
 
 func createCookie(userinfo []byte, expiration time.Time, domain string) *http.Cookie {
 
-	// JWT replacement
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims{
 		"jti": uuid.New().String(),
 		"iss": hostname,
 		"iat": time.Now().Unix(),
 		"exp": expiration.Unix(),
-		"uif": base64encode(userinfo), // TODO should this be encrypted instead?
+		"uif": base64encode(userinfo), // Userinfo will be readable to user
 	})
 
-	tokenString, err := token.SignedString([]byte("foobar123")) // TODO change
+	tokenString, err := token.SignedString(hmacSecret)
 	if err != nil {
 		panic(err)
 	}
@@ -282,7 +290,7 @@ func parseJWT(tokenstr string) (*jwt.Token, error) {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 
-		return []byte("foobar123"), nil // TODO change
+		return hmacSecret, nil
 	})
 
 	if err != nil {
@@ -322,4 +330,15 @@ func base64decode(str string) ([]byte, error) {
 	}
 
 	return arr, nil
+}
+
+func initialiseHMACSecretFromEnv(secEnv string, reqLen int) []byte {
+	envContent := os.Getenv(secEnv)
+
+	if len(envContent) < reqLen {
+		log.Println("WARNING: HMAC secret not provided or secret too short. Generating a random one from nonce characters.")
+		return []byte(createNonce(reqLen))
+	}
+
+	return []byte(envContent)
 }
