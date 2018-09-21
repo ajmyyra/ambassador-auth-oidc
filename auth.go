@@ -145,7 +145,7 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// OIDCHandler processes AuthN responses from OpenID Provider, exchanges token to userinfo and establishes user session
+// OIDCHandler processes AuthN responses from OpenID Provider, exchanges token to userinfo and establishes user session with cookie containing JWT token
 func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	var authCode = r.FormValue("code")
 	if len(authCode) == 0 {
