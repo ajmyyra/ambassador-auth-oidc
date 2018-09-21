@@ -32,6 +32,8 @@ var oidcConfig *oidc.Config
 var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 var hmacSecret []byte
 
+var blacklist []string
+
 func init() {
 	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has a port if it was in URL
 
@@ -85,12 +87,30 @@ func init() {
 
 	oidcProvider = provider
 
-	hmacSecret = initialiseHMACSecretFromEnv("JWT_HMAC_SECRET", 64) // 64 char key is needed for HS512
+	// 64 char(512 bit) key is needed for HS512
+	hmacSecret = initialiseHMACSecretFromEnv("JWT_HMAC_SECRET", 64)
 }
 
 // LoginHandler processes login requests
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	beginOIDCLogin(w, r, "/")
+}
+
+// LogoutHandler blacklists user token
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	//TODO
+}
+
+// Wildcardhandler to provide ServeHTTP method required for Go's handlers
+type wildcardHandler struct {
+}
+
+func (wh *wildcardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	AuthReqHandler(w, r)
+}
+
+func newWildcardHandler() *wildcardHandler {
+	return &wildcardHandler{}
 }
 
 // AuthReqHandler processes all incoming requests by default, unless specific endpoint is mentioned
@@ -100,27 +120,35 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 
 	cookie, err := r.Cookie("auth")
 	if err != nil {
-		log.Println("Cookie not set, redirecting to login.")
+		log.Println(getUserIP(r), r.URL.String(), "Cookie not set, redirecting to login.")
 		beginOIDCLogin(w, r, r.URL.Path)
 		return
 	}
 
 	if len(cookie.Value) == 0 { // No auth header set
-		log.Println("Empty authorization header.")
+		log.Println(getUserIP(r), r.URL.String(), "Empty authorization header.")
 		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
 	} else {
 		// TODO check JWT validation and ditch Redis
 
 		token, err := parseJWT(cookie.Value)
 		if err != nil {
-			log.Println("Problem validating JWT:", err.Error())
-			returnStatus(w, http.StatusBadRequest, "Malformed cookie.")
+
+			// TODO if expired, add X-Unauthorised-Reason
+			if err.Error() == "Token is expired" {
+				w.Header().Set("X-Unauthorized-Reason", "Token Expired")
+				log.Println(getUserIP(r), r.URL.String(), "JWT token expired.")
+			} else {
+				log.Println(getUserIP(r), r.URL.String(), "Problem validating JWT:", err.Error())
+			}
+
+			returnStatus(w, http.StatusUnauthorized, "Malformed or expired token in cookie.")
 			return
 		}
 
-		uifClaim, err := base64decode(getJWTClaim(token, "uif"))
+		uifClaim, err := base64decode(getJWTClaimString(token, "uif"))
 		if err != nil {
-			log.Println("Not able to decode base64 content:", err.Error())
+			log.Println(getUserIP(r), r.URL.String(), "Not able to decode base64 content:", err.Error())
 			returnStatus(w, http.StatusBadRequest, "Malformed cookie.")
 			return
 		}
@@ -129,34 +157,34 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 
 		userInfoClaims, err := redisdb.Get("cookie-" + cookieHash).Result()
 		if err != nil {
-			log.Println("Session not found for", cookieHash)
+			log.Println(getUserIP(r), r.URL.String(), "Session not found for", cookieHash)
 			returnStatus(w, http.StatusForbidden, "Session not found.")
 			return
 		}
 
 		if strings.Compare(string(uifClaim[:]), userInfoClaims) == 0 {
-			log.Println("Validated and accepted a request to", r.URL.String())
+			log.Println(getUserIP(r), r.URL.String(), "Accepted")
 			w.Header().Set("X-Auth-Userinfo", userInfoClaims)
 			returnStatus(w, http.StatusOK, "OK")
 		} else {
-			log.Println("Cookie validation failed, cookie and DB differ.")
+			log.Println(getUserIP(r), r.URL.String(), "Cookie validation failed, cookie and DB differ.")
 			returnStatus(w, http.StatusForbidden, "Incorrect cookie.")
 		}
 	}
 }
 
-// OIDCHandler processes AuthN responses from OpenID Provider, exchanges token to userinfo and establishes user session with cookie containing JWT token
+// OIDCHandler processes authn responses from OpenID Provider, exchanges token to userinfo and establishes user session with cookie containing JWT token
 func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	var authCode = r.FormValue("code")
 	if len(authCode) == 0 {
-		log.Println("Missing url parameter: code")
+		log.Println(getUserIP(r), "Missing url parameter: code")
 		returnStatus(w, http.StatusBadRequest, "Missing url parameter: code")
 		return
 	}
 
 	var state = r.FormValue("state")
 	if len(state) == 0 {
-		log.Println("Missing url parameter: state")
+		log.Println(getUserIP(r), "Missing url parameter: state")
 		returnStatus(w, http.StatusBadRequest, "Missing url parameter: state")
 		return
 	}
@@ -165,7 +193,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	destination, err := redisdb.Get("state-" + state).Result()
 	if err != nil {
 		if err.Error() == "redis: nil" { // State didn't exist, redirecting to new login
-			log.Print("No state found with ", state, ", starting new auth session.\n")
+			log.Print(getUserIP(r), "No state found with ", state, ", starting new auth session.\n")
 			beginOIDCLogin(w, r, "/")
 			return
 		}
@@ -228,7 +256,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("Login validated with ID token, redirecting with cookie.") // TODO add user from userinfo
+	log.Println(getUserIP(r), "Login validated with ID token, redirecting with cookie.") // TODO add user from userinfo
 	http.SetCookie(w, cookie)
 	http.Redirect(w, r, destination, http.StatusFound)
 }
@@ -251,11 +279,13 @@ func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
 
 func createCookie(userinfo []byte, expiration time.Time, domain string) *http.Cookie {
 
+	newExpiration := time.Now().Add(time.Minute * time.Duration(1)) // REMOVE
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims{
 		"jti": uuid.New().String(),
 		"iss": hostname,
 		"iat": time.Now().Unix(),
-		"exp": expiration.Unix(),
+		"exp": newExpiration.Unix(),
 		"uif": base64encode(userinfo), // Userinfo will be readable to user
 	})
 
@@ -304,12 +334,21 @@ func parseJWT(tokenstr string) (*jwt.Token, error) {
 	return nil, errors.New("Token not valid")
 }
 
-func getJWTClaim(token *jwt.Token, claim string) string {
+func getJWTClaimString(token *jwt.Token, claim string) string {
 	if claims, ok := token.Claims.(jwt.MapClaims); ok {
 		return claims[claim].(string)
 	}
 
 	return ""
+}
+
+func getUserIP(r *http.Request) string {
+	headerIP := r.Header.Get("X-Forwarded-For")
+	if headerIP != "" {
+		return headerIP
+	}
+
+	return strings.Split(r.RemoteAddr, ":")[0]
 }
 
 func hashString(str string) string {

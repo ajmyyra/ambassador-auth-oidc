@@ -45,17 +45,6 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-type wildcardHandler struct {
-}
-
-func (wh *wildcardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	AuthReqHandler(w, r)
-}
-
-func newWildcardHandler() *wildcardHandler {
-	return &wildcardHandler{}
-}
-
 func main() {
 	wh := newWildcardHandler()
 
@@ -63,7 +52,7 @@ func main() {
 	router.HandleFunc("/healthz", HealthHandler).Methods(http.MethodGet)
 	router.HandleFunc("/login/oidc", OIDCHandler).Methods(http.MethodGet)
 	router.HandleFunc("/login", LoginHandler).Methods(http.MethodGet)
-	// router.HandleFunc("/logout", LogoutHandler) // TODO
+	router.HandleFunc("/logout", LogoutHandler)
 	router.PathPrefix("/").Handler(wh)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
