@@ -5,17 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"reflect"
 	"strings"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/go-redis/redis"
 )
 
@@ -25,8 +22,6 @@ var redisdb *redis.Client
 var logoutCookie = false
 
 var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-var hmacSecret []byte
-
 var blacklist []string
 
 type blacklistItem struct {
@@ -48,11 +43,6 @@ func init() {
 	if err != nil {
 		log.Fatal("Problem connecting to Redis: ", err.Error())
 	}
-
-	rand.Seed(time.Now().UnixNano())
-
-	// 64 char(512 bit) key is needed for HS512
-	hmacSecret = initialiseHMACSecretFromEnv("JWT_HMAC_SECRET", 64)
 
 	envContent := os.Getenv("LOGOUT_COOKIE")
 	if envContent == "true" {
@@ -79,8 +69,6 @@ func newWildcardHandler() *wildcardHandler {
 
 // AuthReqHandler processes all incoming requests by default, unless specific endpoint is mentioned
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO CORS check, others?
-
 	cookie, err := r.Cookie("auth")
 	if err != nil {
 		log.Println(getUserIP(r), r.URL.String(), "Cookie not set, redirecting to login.")
@@ -92,8 +80,6 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println(getUserIP(r), r.URL.String(), "Empty authorization header.")
 		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
 	} else {
-		// TODO check JWT validation and ditch Redis
-
 		token, err := parseJWT(cookie.Value)
 		if err != nil {
 			if err.Error() == "Token is expired" {
@@ -183,26 +169,6 @@ func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
 	w.Write([]byte(errorMsg))
 }
 
-func parseJWT(tokenstr string) (*jwt.Token, error) {
-	token, err := jwt.Parse(tokenstr, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
-		}
-
-		return hmacSecret, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if token.Valid {
-		return token, nil
-	}
-
-	return nil, errors.New("Token not valid")
-}
-
 func getUserIP(r *http.Request) string {
 	headerIP := r.Header.Get("X-Forwarded-For")
 	if headerIP != "" {
@@ -230,17 +196,6 @@ func base64decode(str string) ([]byte, error) {
 	}
 
 	return arr, nil
-}
-
-func initialiseHMACSecretFromEnv(secEnv string, reqLen int) []byte {
-	envContent := os.Getenv(secEnv)
-
-	if len(envContent) < reqLen {
-		log.Println("WARNING: HMAC secret not provided or secret too short. Generating a random one from nonce characters.")
-		return []byte(createNonce(reqLen))
-	}
-
-	return []byte(envContent)
 }
 
 func updateBlacklist() {

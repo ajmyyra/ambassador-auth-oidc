@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +22,8 @@ var ctx context.Context
 var oauth2Config oauth2.Config
 var oidcProvider *oidc.Provider
 var oidcConfig *oidc.Config
+
+var hmacSecret []byte
 
 func init() {
 	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has a port if it was in URL
@@ -57,6 +62,11 @@ func init() {
 	}
 
 	oidcProvider = provider
+
+	rand.Seed(time.Now().UnixNano())
+
+	// 64 char(512 bit) key is needed for HS512
+	hmacSecret = initialiseHMACSecretFromEnv("JWT_HMAC_SECRET", 64)
 }
 
 // OIDCHandler processes authn responses from OpenID Provider, exchanges token to userinfo and establishes user session with cookie containing JWT token
@@ -182,4 +192,35 @@ func createNonce(length int) string {
 	}
 
 	return string(nonce)
+}
+
+func parseJWT(tokenstr string) (*jwt.Token, error) {
+	token, err := jwt.Parse(tokenstr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+
+		return hmacSecret, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if token.Valid {
+		return token, nil
+	}
+
+	return nil, errors.New("Token not valid")
+}
+
+func initialiseHMACSecretFromEnv(secEnv string, reqLen int) []byte {
+	envContent := os.Getenv(secEnv)
+
+	if len(envContent) < reqLen {
+		log.Println("WARNING: HMAC secret not provided or secret too short. Generating a random one from nonce characters.")
+		return []byte(createNonce(reqLen))
+	}
+
+	return []byte(envContent)
 }
