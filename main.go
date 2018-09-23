@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -39,6 +40,13 @@ func parseEnvVar(envVar string) string {
 	return envContent
 }
 
+func scheduleBlacklistUpdater(seconds int) {
+	for {
+		time.Sleep(time.Duration(seconds) * time.Second)
+		go updateBlacklist()
+	}
+}
+
 // HealthHandler responds to /healthz endpoint for application monitoring
 func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -52,8 +60,11 @@ func main() {
 	router.HandleFunc("/healthz", HealthHandler).Methods(http.MethodGet)
 	router.HandleFunc("/login/oidc", OIDCHandler).Methods(http.MethodGet)
 	router.HandleFunc("/login", LoginHandler).Methods(http.MethodGet)
-	router.HandleFunc("/logout", LogoutHandler)
+	router.HandleFunc("/logout", LogoutHandler).Methods(http.MethodGet)
 	router.PathPrefix("/").Handler(wh)
+
+	updateBlacklist()
+	go scheduleBlacklistUpdater(60)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
