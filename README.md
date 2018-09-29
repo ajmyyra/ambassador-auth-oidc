@@ -10,7 +10,8 @@ Currently it only supports OIDC's [Authorization Code Flow](http://openid.net/sp
 
 ## Example auth flow
 
-TODO
+![](OIDC-flow.png)
+
 
 ## Current status
 
