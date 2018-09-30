@@ -21,7 +21,6 @@ var redisdb *redis.Client
 
 var logoutCookie = false
 
-var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 var blacklist []string
 
 type blacklistItem struct {
@@ -106,7 +105,7 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Println(getUserIP(r), r.URL.String(), "Accepted")
+		log.Println(getUserIP(r), r.URL.String(), "Accepted.")
 		w.Header().Set("X-Auth-Userinfo", string(uifClaim[:]))
 		returnStatus(w, http.StatusOK, "OK")
 	}
@@ -137,21 +136,12 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	jwtExp := int64(token.Claims.(jwt.MapClaims)["exp"].(float64))
 
-	blKey := createNonce(8)
-	blItem := &blacklistItem{Key: blKey, JWTHash: tokenHash, Expiration: time.Unix(jwtExp, 0)}
-	blJSON, err := json.Marshal(blItem)
-	if err != nil {
-		panic(err)
-	}
-
-	err = redisdb.HSet("blacklist", blKey, string(blJSON)).Err()
+	_, err = addToBlacklist(tokenHash, time.Unix(jwtExp, 0))
 	if err != nil {
 		log.Println(getUserIP(r), "Problem setting JWT to Redis blacklist:", err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Problem logging out.")
 		return
 	}
-
-	blacklist = append(blacklist, tokenHash)
 
 	log.Println(getUserIP(r), r.URL.String(), "Logged out, token added to blacklist.")
 
@@ -196,6 +186,23 @@ func base64decode(str string) ([]byte, error) {
 	}
 
 	return arr, nil
+}
+
+func addToBlacklist(tokenHash string, exp time.Time) (bool, error) {
+	blKey := createNonce(8)
+	blItem := &blacklistItem{Key: blKey, JWTHash: tokenHash, Expiration: exp}
+	blJSON, err := json.Marshal(blItem)
+	if err != nil {
+		panic(err)
+	}
+
+	err = redisdb.HSet("blacklist", blKey, string(blJSON)).Err()
+	if err != nil {
+		return false, err
+	}
+
+	blacklist = append(blacklist, tokenHash)
+	return true, nil
 }
 
 func updateBlacklist() {

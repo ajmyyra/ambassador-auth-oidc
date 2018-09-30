@@ -24,6 +24,7 @@ var oidcProvider *oidc.Provider
 var oidcConfig *oidc.Config
 
 var hmacSecret []byte
+var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 func init() {
 	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has a port if it was in URL
