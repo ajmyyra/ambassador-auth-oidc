@@ -14,10 +14,10 @@ import (
 var port string
 
 func init() {
-	port := os.Getenv("PORT")
+	port = os.Getenv("PORT")
 	if len(port) == 0 {
 		log.Println("No port specified, using 8080 as default.")
-		port = "8080" // default value if no PORT env variable is set
+		port = "8080"
 	}
 }
 
@@ -67,5 +67,7 @@ func main() {
 	updateBlacklist()
 	go scheduleBlacklistUpdater(60)
 
-	log.Fatal(http.ListenAndServe(":8080", handlers.CORS()(router)))
+	var listenPort = ":" + port
+	log.Println("Starting web server at", listenPort)
+	log.Fatal(http.ListenAndServe(listenPort, handlers.CORS()(router)))
 }

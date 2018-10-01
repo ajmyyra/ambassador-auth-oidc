@@ -26,6 +26,7 @@ Following environment variables are used by the software.
 + **REDIS_PASSWORD** Password for your Redis instance
 
 **Optional**
++ **PORT** Port to listen for requests. Default is 8080.
 + **LOGOUT_COOKIE** Set to 'true' if you want to wipe the old cookie when logging out. This causes the browser to re-login next time your application is visited. Default is not enabled.
 
 ## Usage
