@@ -10,7 +10,7 @@ Currently it only supports OIDC's [Authorization Code Flow](http://openid.net/sp
 
 ## Example auth flow
 
-![](OIDC-flow.png)
+![](misc/OIDC-flow.png)
 
 ## Options
 
@@ -27,6 +27,7 @@ Following environment variables are used by the software.
 
 **Optional**
 + **PORT** Port to listen for requests. Default is 8080.
++ **JWT_HMAC_SECRET** HMAC secret key for creating JSON Web Tokens. Must be at least 64 characters long. If smaller or not existing, a random one will be created.
 + **LOGOUT_COOKIE** Set to 'true' if you want to wipe the old cookie when logging out. This causes the browser to re-login next time your application is visited. Default is not enabled.
 
 ## Usage
@@ -46,14 +47,28 @@ go build
 
 ### In Docker
 
-Build the container and start it with `docker run`. Replace options and Docker image id with your own. 
+Start the container with `docker run`.
 
 ```
-cd /path/to/code
-docker build .
-docker run -p 8080:8080 -e OIDC_PROVIDER="https://your-oidc-provider/" -e SELF_URL="http://your-server.com:8080" -e OIDC_SCOPES="profile email" -e CLIENT_ID="YOUR_CLIENT_ID" -e CLIENT_SECRET="YOUR_CLIENT_SECRET" -e REDIS_ADDRESS="redis:6379" -e REDIS_PASSWORD="YOUR_REDIS_PASSWORD" <Docker image id>
+docker run -p 8080:8080 -e OIDC_PROVIDER="https://your-oidc-provider/" -e SELF_URL="http://your-server.com:8080" -e OIDC_SCOPES="profile email" -e CLIENT_ID="YOUR_CLIENT_ID" -e CLIENT_SECRET="YOUR_CLIENT_SECRET" -e REDIS_ADDRESS="redis:6379" -e REDIS_PASSWORD="YOUR_REDIS_PASSWORD" ajmyyra/ambassador-auth-oidc:1.0
 ```
 
 ### With Ambassador in Kubernetes
 
- TODO, add to Docker hub first.
+If you haven't already, start Ambassador using the [official instructions](https://www.getambassador.io/user-guide/getting-started).
+
+After Ambassador is up and running, create secrets start ExtAuth component with following podspec.
+
+```
+kubectl create secret generic ambassador-auth-jwt-key --from-literal=jwt-key=$(openssl rand -base64 64|tr -d '\n ')
+kubectl create secret generic ambassador-auth-redis-password --from-literal=redis-password=$(openssl rand -base64 20)
+kubectl create secret generic ambassador-auth-oidc-provider --from-literal=oidc-provider=YOUR_OIDC_PROVIDER_URL
+kubectl create secret generic ambassador-auth-self-url --from-literal=self-url=YOUR_SELF_URL
+kubectl create secret generic ambassador-auth-client-id --from-literal=client-id=YOUR_OIDC_CLIENT_ID
+kubectl create secret generic ambassador-auth-client-secret --from-literal=client-secret=YOUR_OIDC_CLIENT_SECRET
+kubectl get secrets # To confirm they've been created
+kubectl create -f auth-deployment.yaml
+kubectl create -f auth-service.yaml
+```
+
+An example specs of [auth-deployment](misc/auth-deployment.yaml.example) and [auth-service](misc/auth-service.yaml.example) can be found from the misc folder.
