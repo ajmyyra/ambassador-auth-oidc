@@ -18,7 +18,7 @@ Following environment variables are used by the software.
 
 **Compulsary**
 + **OIDC_PROVIDER** URL to your OIDC provider, for example: https://you.eu.auth0.com/
-+ **SELF_URL** URL of your application, for example: https://app.yourapp.com
++ **SELF_URL** URL of your application and same as your Ambassador root URL, for example: https://app.yourapp.com 
 + **OIDC_SCOPES** OIDC scopes wanted for userinfo, for example: "profile email"
 + **CLIENT_ID** Client id for your application (given by your OIDC provider)
 + **CLIENT_SECRET** Client secret for your application
@@ -57,7 +57,7 @@ docker run -p 8080:8080 -e OIDC_PROVIDER="https://your-oidc-provider/" -e SELF_U
 
 If you haven't already, start Ambassador using the [official instructions](https://www.getambassador.io/user-guide/getting-started).
 
-After Ambassador is up and running, create secrets start ExtAuth component with following podspec.
+After Ambassador is up and running, create secrets and start ExtAuth component with following podspec.
 
 ```
 kubectl create secret generic ambassador-auth-jwt-key --from-literal=jwt-key=$(openssl rand -base64 64|tr -d '\n ')
