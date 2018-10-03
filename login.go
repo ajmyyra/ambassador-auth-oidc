@@ -51,10 +51,16 @@ func init() {
 		oidcScopes = append(oidcScopes, elem)
 	}
 
+	var redirURL = parseEnvURL("SELF_URL").String()
+	if string(redirURL[len(redirURL)-1]) == "/" {
+		redirURL = string(redirURL[:len(redirURL)-1])
+	}
+	redirURL = redirURL + "/login/oidc"
+
 	oauth2Config = oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		RedirectURL:  parseEnvURL("SELF_URL").String() + "/login/oidc",
+		RedirectURL:  redirURL,
 
 		// Discovery returns the OAuth2 endpoints.
 		Endpoint: provider.Endpoint(),
