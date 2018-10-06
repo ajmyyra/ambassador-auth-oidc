@@ -1,7 +1,7 @@
 package main
 
 import (
-        "errors"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +16,7 @@ var port string
 func init() {
 	port = os.Getenv("PORT")
 	if len(port) == 0 {
-		LogInfo("No port specified, using 8080 as default.")
+		log.Println("No port specified, using 8080 as default.")
 		port = "8080"
 	}
 }
@@ -25,7 +25,7 @@ func parseEnvURL(URLEnv string) *url.URL {
 	envContent := os.Getenv(URLEnv)
 	parsedURL, err := url.ParseRequestURI(envContent)
 	if err != nil {
-		LogFatal(err, "Not a valid URL for env variable " + URLEnv + ": " + envContent)
+		log.Fatal("Not a valid URL for env variable ", URLEnv, ": ", envContent, "\n")
 	}
 
 	return parsedURL
@@ -35,7 +35,7 @@ func parseEnvVar(envVar string) string {
 	envContent := os.Getenv(envVar)
 
 	if len(envContent) == 0 {
-		LogFatal(errors.New("Env var missing."), "Env variable " + envVar + " missing, exiting.")
+		log.Fatal("Env variable ", envVar, " missing, exiting.")
 	}
 
 	return envContent
@@ -68,6 +68,6 @@ func main() {
 	go scheduleBlacklistUpdater(60)
 
 	var listenPort = ":" + port
-	LogInfo("Starting web server at" + listenPort)
-	LogFatal(http.ListenAndServe(listenPort, handlers.CORS()(router)), "http.ListenAndServe() failure.")
+	log.Println("Starting web server at", listenPort)
+	log.Fatal(http.ListenAndServe(listenPort, handlers.CORS()(router)))
 }
