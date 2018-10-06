@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"reflect"
@@ -40,7 +39,7 @@ func init() {
 
 	_, err := redisdb.Ping().Result()
 	if err != nil {
-		log.Fatal("Problem connecting to Redis: ", err.Error())
+		LogFatal(err, "Problem connecting to Redis: " + err.Error())
 	}
 
 	envContent := os.Getenv("LOGOUT_COOKIE")
@@ -70,22 +69,22 @@ func newWildcardHandler() *wildcardHandler {
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("auth")
 	if err != nil {
-		log.Println(getUserIP(r), r.URL.String(), "Cookie not set, redirecting to login.")
+		LogError(getUserIP(r) + r.URL.String() + "Cookie not set, redirecting to login.")
 		beginOIDCLogin(w, r, r.URL.Path)
 		return
 	}
 
 	if len(cookie.Value) == 0 { // No auth header set
-		log.Println(getUserIP(r), r.URL.String(), "Empty authorization header.")
+		LogError(getUserIP(r) + r.URL.String() + "Empty authorization header.")
 		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
 	} else {
 		token, err := parseJWT(cookie.Value)
 		if err != nil {
 			if err.Error() == "Token is expired" {
 				w.Header().Set("X-Unauthorized-Reason", "Token Expired")
-				log.Println(getUserIP(r), r.URL.String(), "JWT token expired.")
+				LogInfo(getUserIP(r) + r.URL.String() + "JWT token expired.")
 			} else {
-				log.Println(getUserIP(r), r.URL.String(), "Problem validating JWT:", err.Error())
+				LogError(getUserIP(r) + r.URL.String() + "Problem validating JWT:" + err.Error())
 			}
 
 			returnStatus(w, http.StatusUnauthorized, "Malformed or expired token in cookie.")
@@ -93,19 +92,19 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if checkBlacklist(hashString(token.Raw)) {
-			log.Println(getUserIP(r), r.URL.String(), "Token in blacklist.")
+			LogInfo(getUserIP(r) + r.URL.String() + "Token in blacklist.")
 			returnStatus(w, http.StatusUnauthorized, "Not logged in")
 			return
 		}
 
 		uifClaim, err := base64decode(token.Claims.(jwt.MapClaims)["uif"].(string))
 		if err != nil {
-			log.Println(getUserIP(r), r.URL.String(), "Not able to decode base64 content:", err.Error())
+			LogError(getUserIP(r) + r.URL.String() + "Not able to decode base64 content:" + err.Error())
 			returnStatus(w, http.StatusBadRequest, "Malformed cookie.")
 			return
 		}
 
-		log.Println(getUserIP(r), r.URL.String(), "Accepted.")
+		LogInfo(getUserIP(r) + r.URL.String() + "Accepted.")
 		w.Header().Set("X-Auth-Userinfo", string(uifClaim[:]))
 		returnStatus(w, http.StatusOK, "OK")
 	}
@@ -115,21 +114,21 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("auth")
 	if err != nil {
-		log.Println(getUserIP(r), r.URL.String(), "Cookie not set, not able to logout.")
+		LogError(getUserIP(r) + r.URL.String() + "Cookie not set, not able to logout.")
 		returnStatus(w, http.StatusBadRequest, "Cookie not set.")
 		return
 	}
 
 	token, err := parseJWT(cookie.Value)
 	if err != nil {
-		log.Println(getUserIP(r), r.URL.String(), "Not able to use JWT:", err.Error())
+		LogError(getUserIP(r) + r.URL.String() + "Not able to use JWT:" + err.Error())
 		returnStatus(w, http.StatusBadRequest, "Malformed JWT in cookie.")
 		return
 	}
 
 	tokenHash := hashString(token.Raw)
 	if checkBlacklist(tokenHash) {
-		log.Println(getUserIP(r), r.URL.String(), "Token already blacklisted, cannot to logout again.")
+		LogError(getUserIP(r) + r.URL.String() + "Token already blacklisted, cannot to logout again.")
 		returnStatus(w, http.StatusForbidden, "Not logged in.")
 		return
 	}
@@ -138,12 +137,12 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err = addToBlacklist(tokenHash, time.Unix(jwtExp, 0))
 	if err != nil {
-		log.Println(getUserIP(r), "Problem setting JWT to Redis blacklist:", err.Error())
+		LogError(getUserIP(r) + "Problem setting JWT to Redis blacklist:" + err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Problem logging out.")
 		return
 	}
 
-	log.Println(getUserIP(r), r.URL.String(), "Logged out, token added to blacklist.")
+	LogInfo(getUserIP(r) + r.URL.String() + "Logged out, token added to blacklist.")
 
 	if logoutCookie { // Sends empty expired cookie to remove the logged out one.
 		var emptyClaims []byte
@@ -222,7 +221,7 @@ func updateBlacklist() {
 		}
 
 		if blItem.Expiration.Before(time.Now()) {
-			log.Println("Removing expired token", blItem.Key, "from blacklist.")
+			LogInfo("Removing expired token" + blItem.Key + "from blacklist.")
 			err = redisdb.HDel("blacklist", blItem.Key).Err()
 			if err != nil {
 				panic(err)
@@ -235,7 +234,7 @@ func updateBlacklist() {
 
 	if !reflect.DeepEqual(blacklist, newBlacklist) {
 		blacklist = newBlacklist
-		log.Println("Blacklist changes in Redis, local blacklist recreated.")
+		LogInfo("Blacklist changes in Redis, local blacklist recreated.")
 	}
 
 }

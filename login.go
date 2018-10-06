@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -36,7 +35,7 @@ func init() {
 
 	provider, err := oidc.NewProvider(ctx, parseEnvURL("OIDC_PROVIDER").String())
 	if err != nil {
-		log.Fatal("OIDC provider setup failed: ", err)
+		LogFatal(err, "OIDC provider setup failed.")
 	}
 
 	oidcConfig = &oidc.Config{
@@ -80,14 +79,14 @@ func init() {
 func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	var authCode = r.FormValue("code")
 	if len(authCode) == 0 {
-		log.Println(getUserIP(r), "Missing url parameter: code")
+		LogError(getUserIP(r) + "Missing url parameter: code")
 		returnStatus(w, http.StatusBadRequest, "Missing url parameter: code")
 		return
 	}
 
 	var state = r.FormValue("state")
 	if len(state) == 0 {
-		log.Println(getUserIP(r), "Missing url parameter: state")
+		LogError(getUserIP(r) + "Missing url parameter: state")
 		returnStatus(w, http.StatusBadRequest, "Missing url parameter: state")
 		return
 	}
@@ -96,7 +95,7 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	destination, err := redisdb.Get("state-" + state).Result()
 	if err != nil {
 		if err.Error() == "redis: nil" { // State didn't exist, redirecting to new login
-			log.Print(getUserIP(r), " No state found with ", state, ", starting new auth session.\n")
+			LogError(getUserIP(r) + " No state found with " + state + ", starting new auth session.\n")
 			beginOIDCLogin(w, r, "/")
 			return
 		}
@@ -107,14 +106,14 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := oauth2Config.Exchange(ctx, authCode)
 	if err != nil {
-		log.Println("Failed to exchange token:", err.Error())
+		LogError("Failed to exchange token:" + err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Failed to exchange token.")
 		return
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		log.Println("No id_token field available.")
+		LogError("No id_token field available.")
 		returnStatus(w, http.StatusInternalServerError, "No id_token field in OAuth 2.0 token.")
 		return
 	}
@@ -123,21 +122,21 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	verifier := oidcProvider.Verifier(oidcConfig)
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		log.Println("Not able to verify ID token:", err.Error())
+		LogError("Not able to verify ID token:" + err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Unable to verify ID token.")
 		return
 	}
 
 	userInfo, err := oidcProvider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
 	if err != nil {
-		log.Println("Problem fetching userinfo:", err.Error())
+		LogError("Problem fetching userinfo:" + err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo.")
 		return
 	}
 
 	claims := json.RawMessage{}
 	if err = userInfo.Claims(&claims); err != nil {
-		log.Println("Problem getting userinfo claims:", err.Error())
+		LogError("Problem getting userinfo claims:" + err.Error())
 		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo claims.")
 		return
 	}
@@ -147,10 +146,10 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	// Removing OIDC flow state from DB
 	err = redisdb.Del("state-" + state).Err()
 	if err != nil {
-		log.Println("WARNING: Unable to remove state from DB,", err.Error())
+		LogError("WARNING: Unable to remove state from DB," + err.Error())
 	}
 
-	log.Println(getUserIP(r), "Login validated with ID token, redirecting with cookie.") // TODO add user from userinfo
+	LogInfo(getUserIP(r) + "Login validated with ID token, redirecting with cookie.") // TODO add user from userinfo
 	http.SetCookie(w, cookie)
 	http.Redirect(w, r, destination, http.StatusFound)
 }
@@ -225,7 +224,7 @@ func initialiseHMACSecretFromEnv(secEnv string, reqLen int) []byte {
 	envContent := os.Getenv(secEnv)
 
 	if len(envContent) < reqLen {
-		log.Println("WARNING: HMAC secret not provided or secret too short. Generating a random one from nonce characters.")
+		LogError("WARNING: HMAC secret not provided or secret too short. Generating a random one from nonce characters.")
 		return []byte(createNonce(reqLen))
 	}
 
