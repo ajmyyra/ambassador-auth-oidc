@@ -18,7 +18,7 @@
   version = "v3.2.0"
 
 [[projects]]
-  digest = "1:7c2fd446293ff7799cc496d3446e674ee67902d119f244de645caf95dff1bb98"
+  digest = "1:34a9a60fade37f8009ed4a19e02924198aba3eabfcc120ee5c6002b7de17212d"
   name = "github.com/go-redis/redis"
   packages = [
     ".",
@@ -31,8 +31,8 @@
     "internal/util",
   ]
   pruneopts = "UT"
-  revision = "f3bba01df2026fc865f7782948845db9cf44cf23"
-  version = "v6.14.1"
+  revision = "b3d9bf10f6666b2ee5100a6f3f84f4caf3b4e37d"
+  version = "v6.14.2"
 
 [[projects]]
   digest = "1:97df918963298c287643883209a2c3f642e6593379f97ab400c2a2e219ab647d"
@@ -95,7 +95,7 @@
     "pbkdf2",
   ]
   pruneopts = "UT"
-  revision = "5295e8364332db77d75fce11f1d19c053919a9c9"
+  revision = "e84da0312774c21d64ee2317962ef669b27ffb41"
 
 [[projects]]
   branch = "master"
@@ -106,18 +106,18 @@
     "context/ctxhttp",
   ]
   pruneopts = "UT"
-  revision = "4dfa2610cdf3b287375bbba5b8f2a14d3b01d8de"
+  revision = "9b4f9f5ad5197c79fd623a3638e70d8b26cef344"
 
 [[projects]]
   branch = "master"
-  digest = "1:363b547c971a2b07474c598b6e9ebcb238d556d8a27f37b3895ad20cd50e7281"
+  digest = "1:1bce229fad01cbad9bd00e70ca32afff25ac2cea3dd710d50f88c967c1c3df65"
   name = "golang.org/x/oauth2"
   packages = [
     ".",
     "internal",
   ]
   pruneopts = "UT"
-  revision = "d2e6202438beef2727060aa7cabdd924d92ebfd9"
+  revision = "9dcd33a902f40452422c2367fefcb95b54f9f8f8"
 
 [[projects]]
   digest = "1:6247f76e55a1e1a5c19a81e2d4b4dff6730461eeb5bbb0a16dd4a8ec8637ee93"

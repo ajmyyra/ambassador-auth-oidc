@@ -68,47 +68,55 @@ func newWildcardHandler() *wildcardHandler {
 
 // AuthReqHandler processes all incoming requests by default, unless specific endpoint is mentioned
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("auth")
-	if err != nil {
-		log.Println(getUserIP(r), r.URL.String(), "Cookie not set, redirecting to login.")
-		beginOIDCLogin(w, r, r.URL.Path)
+	var userToken string
+
+	if len(r.Header.Get("X-Auth-Token")) != 0 { // Header available in request
+		userToken = r.Header.Get("X-Auth-Token")
+	} else {
+		cookie, err := r.Cookie("auth")
+		if err != nil {
+			log.Println(getUserIP(r), r.URL.String(), "Cookie not set, redirecting to login.")
+			beginOIDCLogin(w, r, r.URL.Path)
+			return
+		}
+		userToken = cookie.Value
+	}
+
+	if len(userToken) == 0 { // Cookie or auth header empty
+		log.Println(getUserIP(r), r.URL.String(), "Empty authorization header.")
+		returnStatus(w, http.StatusBadRequest, "Cookie/header empty or malformed.")
 		return
 	}
 
-	if len(cookie.Value) == 0 { // No auth header set
-		log.Println(getUserIP(r), r.URL.String(), "Empty authorization header.")
-		returnStatus(w, http.StatusBadRequest, "Cookie empty or malformed.")
-	} else {
-		token, err := parseJWT(cookie.Value)
-		if err != nil {
-			if err.Error() == "Token is expired" {
-				w.Header().Set("X-Unauthorized-Reason", "Token Expired")
-				log.Println(getUserIP(r), r.URL.String(), "JWT token expired.")
-			} else {
-				log.Println(getUserIP(r), r.URL.String(), "Problem validating JWT:", err.Error())
-			}
-
-			returnStatus(w, http.StatusUnauthorized, "Malformed or expired token in cookie.")
-			return
+	token, err := parseJWT(userToken)
+	if err != nil {
+		if err.Error() == "Token is expired" {
+			w.Header().Set("X-Unauthorized-Reason", "Token Expired")
+			log.Println(getUserIP(r), r.URL.String(), "JWT token expired.")
+		} else {
+			log.Println(getUserIP(r), r.URL.String(), "Problem validating JWT:", err.Error())
 		}
 
-		if checkBlacklist(hashString(token.Raw)) {
-			log.Println(getUserIP(r), r.URL.String(), "Token in blacklist.")
-			returnStatus(w, http.StatusUnauthorized, "Not logged in")
-			return
-		}
-
-		uifClaim, err := base64decode(token.Claims.(jwt.MapClaims)["uif"].(string))
-		if err != nil {
-			log.Println(getUserIP(r), r.URL.String(), "Not able to decode base64 content:", err.Error())
-			returnStatus(w, http.StatusBadRequest, "Malformed cookie.")
-			return
-		}
-
-		log.Println(getUserIP(r), r.URL.String(), "Accepted.")
-		w.Header().Set("X-Auth-Userinfo", string(uifClaim[:]))
-		returnStatus(w, http.StatusOK, "OK")
+		returnStatus(w, http.StatusUnauthorized, "Cookie/header expired or malformed.")
+		return
 	}
+
+	if checkBlacklist(hashString(token.Raw)) {
+		log.Println(getUserIP(r), r.URL.String(), "Token in blacklist.")
+		returnStatus(w, http.StatusUnauthorized, "Not logged in")
+		return
+	}
+
+	uifClaim, err := base64decode(token.Claims.(jwt.MapClaims)["uif"].(string))
+	if err != nil {
+		log.Println(getUserIP(r), r.URL.String(), "Not able to decode base64 content:", err.Error())
+		returnStatus(w, http.StatusBadRequest, "Malformed cookie or header.")
+		return
+	}
+
+	log.Println(getUserIP(r), r.URL.String(), "Accepted.")
+	w.Header().Set("X-Auth-Userinfo", string(uifClaim[:]))
+	returnStatus(w, http.StatusOK, "OK")
 }
 
 // LogoutHandler blacklists user token
@@ -146,8 +154,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println(getUserIP(r), r.URL.String(), "Logged out, token added to blacklist.")
 
 	if logoutCookie { // Sends empty expired cookie to remove the logged out one.
-		var emptyClaims []byte
-		newCookie := createCookie(emptyClaims, time.Now().AddDate(0, 0, -2), hostname)
+		newCookie := createCookie("", time.Now().AddDate(0, 0, -2), hostname)
 		http.SetCookie(w, newCookie)
 	}
 

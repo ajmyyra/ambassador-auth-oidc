@@ -142,7 +142,8 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookie := createCookie(claims, idToken.Expiry, hostname)
+	userJwt := createSignedJWT(claims, idToken.Expiry)
+	cookie := createCookie(userJwt, idToken.Expiry, hostname)
 
 	// Removing OIDC flow state from DB
 	err = redisdb.Del("state-" + state).Err()
@@ -166,8 +167,20 @@ func beginOIDCLogin(w http.ResponseWriter, r *http.Request, origURL string) {
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 }
 
-func createCookie(userinfo []byte, expiration time.Time, domain string) *http.Cookie {
+func createCookie(sessionJwt string, expiration time.Time, domain string) *http.Cookie {
 
+	cookie := &http.Cookie{
+		Name:    "auth",
+		Value:   sessionJwt,
+		Path:    "/",
+		Domain:  domain,
+		Expires: expiration,
+	}
+
+	return cookie
+}
+
+func createSignedJWT(userinfo []byte, expiration time.Time) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims{
 		"jti": uuid.New().String(),
 		"iss": hostname,
@@ -181,15 +194,7 @@ func createCookie(userinfo []byte, expiration time.Time, domain string) *http.Co
 		panic(err)
 	}
 
-	cookie := &http.Cookie{
-		Name:    "auth",
-		Value:   tokenString,
-		Path:    "/",
-		Domain:  domain,
-		Expires: expiration,
-	}
-
-	return cookie
+	return tokenString
 }
 
 func createNonce(length int) string {
