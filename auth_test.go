@@ -22,7 +22,8 @@ func TestTokenBlacklisting(t *testing.T) {
 	var testdomain = "testing.com"
 	var userinfo = []byte("testfoo1234567890")
 	var expiration = time.Now().Add(time.Hour)
-	testCookie := createCookie(userinfo, expiration, testdomain)
+	testJwt := createSignedJWT(userinfo, expiration)
+	testCookie := createCookie(testJwt, expiration, testdomain)
 
 	token, err := parseJWT(testCookie.Value)
 	if err != nil {

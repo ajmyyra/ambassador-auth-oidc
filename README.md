@@ -32,15 +32,17 @@ Following environment variables are used by the software.
 
 ## Usage
 
-All (except the Kubernetes one) expect that you've cloned the code into your own Go environment (for example, to $GOPATH/src/github.com/ajmyyra/ambassador-auth-oidc)
+All (except the Kubernetes one) expect that you've cloned the code into your own Go environment (for example, to $GOPATH/src/github.com/ajmyyra/ambassador-auth-oidc).
+
+On browser-side, AuthProxy sets up a cookie named "auth" when redirecting the browser back to the original resource. After login, requests are allowed through by either with a cookie or by setting `X-Auth-Token` header in the request. Token is a JSON Web Token that can be fetched from the "auth" cookie through `document.cookie` in DOM.
 
 ### As binary
-
-Fetch dependencies, build the binary and run it.
+Start by cloning the code into your own Go environment (for example, to $GOPATH/src/github.com/ajmyyra/ambassador-auth-oidc). Fetch dependencies, build the binary and run it.
 
 ```
 cd /path/to/code
-go get ./...
+go get github.com/golang/dep/cmd/dep
+$GOPATH/bin/dep ensure
 go build
 ./ambassador-auth-oidc
 ```
@@ -50,7 +52,7 @@ go build
 Start the container with `docker run`.
 
 ```
-docker run -p 8080:8080 -e OIDC_PROVIDER="https://your-oidc-provider/" -e SELF_URL="http://your-server.com:8080" -e OIDC_SCOPES="profile email" -e CLIENT_ID="YOUR_CLIENT_ID" -e CLIENT_SECRET="YOUR_CLIENT_SECRET" -e REDIS_ADDRESS="redis:6379" -e REDIS_PASSWORD="YOUR_REDIS_PASSWORD" ajmyyra/ambassador-auth-oidc:1.1
+docker run -p 8080:8080 -e OIDC_PROVIDER="https://your-oidc-provider/" -e SELF_URL="http://your-server.com:8080" -e OIDC_SCOPES="profile email" -e CLIENT_ID="YOUR_CLIENT_ID" -e CLIENT_SECRET="YOUR_CLIENT_SECRET" -e REDIS_ADDRESS="redis:6379" -e REDIS_PASSWORD="YOUR_REDIS_PASSWORD" ajmyyra/ambassador-auth-oidc:1.2
 ```
 
 ### With Ambassador in Kubernetes

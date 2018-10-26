@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
       - name: oidc-auth
-        image: ajmyyra/ambassador-auth-oidc:1.1
+        image: ajmyyra/ambassador-auth-oidc:1.2
         imagePullPolicy: Always
         ports:
         - name: http-api
