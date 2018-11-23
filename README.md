@@ -29,6 +29,7 @@ Following environment variables are used by the software.
 + **PORT** Port to listen for requests. Default is 8080.
 + **JWT_HMAC_SECRET** HMAC secret key for creating JSON Web Tokens. Must be at least 64 characters long. If smaller or not existing, a random one will be created.
 + **LOGOUT_COOKIE** Set to 'true' if you want to wipe the old cookie when logging out. This causes the browser to re-login next time your application is visited. Default is not enabled.
++ **SKIP_AUTH_URI** Space separated list of URIs like "/info /health" to bypass auth. Default ""
 
 ## Usage
 
