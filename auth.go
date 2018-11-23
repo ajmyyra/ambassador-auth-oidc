@@ -40,7 +40,7 @@ func init() {
 	})
 
 	skipAuth = strings.Split(getenvOrDefault("SKIP_AUTH_URI", ""), " ")
-	log.Println("Skipping AUTH for URIs: ", skipAuth)
+	log.Println("Skipping AUTH for URIs:", skipAuth)
 
 	_, err := redisdb.Ping().Result()
 	if err != nil {
@@ -56,7 +56,7 @@ func init() {
 func getenvOrDefault(key, fallback string) string {
 	value := os.Getenv(key)
 	if len(value) == 0 {
-		log.Println("No ", key, " specified, using '", fallback, "' as default.")
+		log.Println("No ", key, " specified, using '"+fallback+"' as default.")
 		return fallback
 	}
 	return value
@@ -83,14 +83,15 @@ func newWildcardHandler() *wildcardHandler {
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 	var userToken string
 
-	for _, v := range skipAuth {
-		if strings.HasPrefix(r.URL.String(), string(v)) {
-			log.Println(getUserIP(r), r.URL.String(), "URI is in SKIP_AUTH_URI array. ACCEPTING...")
-			returnStatus(w, http.StatusOK, "OK")
-			return
+	if len(skipAuth[0]) > 0 {
+		for _, v := range skipAuth {
+			if strings.HasPrefix(r.URL.String(), string(v)) {
+				log.Println(getUserIP(r), r.URL.String(), "URI is in SKIP_AUTH_URI array. ACCEPTING...")
+				returnStatus(w, http.StatusOK, "OK")
+				return
+			}
 		}
 	}
-
 	if len(r.Header.Get("X-Auth-Token")) != 0 { // Header available in request
 		userToken = r.Header.Get("X-Auth-Token")
 	} else {
