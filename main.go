@@ -14,11 +14,7 @@ import (
 var port string
 
 func init() {
-	port = os.Getenv("PORT")
-	if len(port) == 0 {
-		log.Println("No port specified, using 8080 as default.")
-		port = "8080"
-	}
+	port = getenvOrDefault("PORT", "8080")
 }
 
 func parseEnvURL(URLEnv string) *url.URL {
