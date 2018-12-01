@@ -43,3 +43,5 @@ func TestCookieCreation(t *testing.T) {
 		t.Error("Userinfo different from uif claim. Userinfo: " + string(userinfo[:]) + ", uif claim: " + string(uifClaim[:]))
 	}
 }
+
+// TODO mock OIDC endpoint and test different scenarios.

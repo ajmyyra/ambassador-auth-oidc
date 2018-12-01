@@ -22,14 +22,14 @@ Following environment variables are used by the software.
 + **OIDC_SCOPES** OIDC scopes wanted for userinfo, for example: "profile email"
 + **CLIENT_ID** Client id for your application (given by your OIDC provider)
 + **CLIENT_SECRET** Client secret for your application
-+ **REDIS_ADDRESS** Address for your Redis instance, IP or hostname
-+ **REDIS_PASSWORD** Password for your Redis instance
 
 **Optional**
 + **PORT** Port to listen for requests. Default is 8080.
 + **JWT_HMAC_SECRET** HMAC secret key for creating JSON Web Tokens. Must be at least 64 characters long. If smaller or not existing, a random one will be created.
 + **LOGOUT_COOKIE** Set to 'true' if you want to wipe the old cookie when logging out. This causes the browser to re-login next time your application is visited. Default is not enabled.
-+ **SKIP_AUTH_URI** Space separated list of URIs like "/info /health" to bypass auth. Default empty
++ **SKIP_AUTH_URI** Space separated whitelist of URIs like "/info /health" to bypass authorization. Contains nothing by default.
++ **REDIS_ADDRESS** Address for your Redis instance, IP or hostname. Required for communication of setups containing more than one AuthService.
++ **REDIS_PASSWORD** Password for your Redis service, if needed.
 
 ## Usage
 

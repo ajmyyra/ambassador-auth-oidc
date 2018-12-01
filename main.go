@@ -37,10 +37,26 @@ func parseEnvVar(envVar string) string {
 	return envContent
 }
 
+func getenvOrDefault(key, fallback string) string {
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		log.Println("No ", key, " specified, using '"+fallback+"' as default.")
+		return fallback
+	}
+	return value
+}
+
 func scheduleBlacklistUpdater(seconds int) {
 	for {
 		time.Sleep(time.Duration(seconds) * time.Second)
 		go updateBlacklist()
+	}
+}
+
+func scheduleLoginSessionCleaner(seconds int) {
+	for {
+		time.Sleep(time.Duration(seconds) * time.Second)
+		go removeOldLoginSessions()
 	}
 }
 
@@ -60,8 +76,12 @@ func main() {
 	router.HandleFunc("/logout", LogoutHandler).Methods(http.MethodGet)
 	router.PathPrefix("/").Handler(wh)
 
-	updateBlacklist()
-	go scheduleBlacklistUpdater(60)
+	if redisdb != nil {
+		updateBlacklist()
+		go scheduleBlacklistUpdater(60)
+	} else {
+		go scheduleLoginSessionCleaner(300)
+	}
 
 	var listenPort = ":" + port
 	log.Println("Starting web server at", listenPort)

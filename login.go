@@ -26,6 +26,8 @@ var oidcConfig *oidc.Config
 var hmacSecret []byte
 var nonceChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
+var loginSessions []*loginSession
+
 func init() {
 	hostname = strings.Split(parseEnvURL("SELF_URL").Host, ":")[0] // Because Host still has a port if it was in URL
 
@@ -76,6 +78,12 @@ func init() {
 	hmacSecret = initialiseHMACSecretFromEnv("JWT_HMAC_SECRET", 64)
 }
 
+type loginSession struct {
+	State    string
+	Validity time.Time
+	OrigURL  string
+}
+
 // OIDCHandler processes authn responses from OpenID Provider, exchanges token to userinfo and establishes user session with cookie containing JWT token
 func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	var authCode = r.FormValue("code")
@@ -93,16 +101,29 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Getting original destination from DB with state
-	destination, err := redisdb.Get("state-" + state).Result()
-	if err != nil {
-		if err.Error() == "redis: nil" { // State didn't exist, redirecting to new login
+	var destination = ""
+	if redisdb != nil {
+		var err error
+		destination, err = redisdb.Get("state-" + state).Result()
+		if err != nil {
+			if err.Error() == "redis: nil" { // State didn't exist, redirecting to new login
+				log.Print(getUserIP(r), " No state found with ", state, ", starting new auth session.\n")
+				beginOIDCLogin(w, r, "/")
+				return
+			}
+
+			returnStatus(w, http.StatusInternalServerError, "Error fetching state from DB.")
+			panic(err)
+		}
+	} else {
+		session, err := findLocalLoginSession(state)
+		if err != nil {
 			log.Print(getUserIP(r), " No state found with ", state, ", starting new auth session.\n")
 			beginOIDCLogin(w, r, "/")
 			return
 		}
 
-		returnStatus(w, http.StatusInternalServerError, "Error fetching state from DB.")
-		panic(err)
+		destination = session.OrigURL
 	}
 
 	oauth2Token, err := oauth2Config.Exchange(ctx, authCode)
@@ -146,12 +167,16 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 	cookie := createCookie(userJwt, idToken.Expiry, hostname)
 
 	// Removing OIDC flow state from DB
-	err = redisdb.Del("state-" + state).Err()
-	if err != nil {
-		log.Println("WARNING: Unable to remove state from DB,", err.Error())
+	if redisdb != nil {
+		err = redisdb.Del("state-" + state).Err()
+		if err != nil {
+			log.Println("WARNING: Unable to remove state from DB,", err.Error())
+		}
+	} else {
+		removeLoginSession(state)
 	}
 
-	log.Println(getUserIP(r), "Login validated with ID token, redirecting with cookie.") // TODO add user from userinfo
+	log.Println(getUserIP(r), "Login validated with ID token, redirecting with JWT cookie.") // TODO add user from userinfo
 	http.SetCookie(w, cookie)
 	http.Redirect(w, r, destination, http.StatusFound)
 }
@@ -159,9 +184,15 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 // beginOIDCLogin starts the login sequence by creating state and forwarding user to OIDC provider for verification
 func beginOIDCLogin(w http.ResponseWriter, r *http.Request, origURL string) {
 	var state = createNonce(8)
-	err := redisdb.Set("state-"+state, origURL, time.Hour).Err()
-	if err != nil {
-		panic(err)
+
+	if redisdb != nil {
+		err := redisdb.Set("state-"+state, origURL, time.Hour).Err()
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		session := &loginSession{State: state, Validity: time.Now().Add(time.Hour), OrigURL: origURL}
+		loginSessions = append(loginSessions, session)
 	}
 
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
@@ -235,4 +266,35 @@ func initialiseHMACSecretFromEnv(secEnv string, reqLen int) []byte {
 	}
 
 	return []byte(envContent)
+}
+
+func findLocalLoginSession(state string) (*loginSession, error) {
+	for _, elem := range loginSessions {
+		if elem.State == state {
+			return elem, nil
+		}
+	}
+
+	return nil, errors.New("state not found")
+}
+
+func removeLoginSession(state string) {
+	for i, elem := range loginSessions {
+		if elem.State == state {
+			loginSessions[len(loginSessions)-1], loginSessions[i] = loginSessions[i], loginSessions[len(loginSessions)-1]
+			loginSessions = loginSessions[:len(loginSessions)-1]
+			return
+		}
+	}
+
+	log.Println("Tried to delete a nonexistent session, nothing found.")
+}
+
+func removeOldLoginSessions() {
+	for _, elem := range loginSessions {
+		if elem.Validity.Before(time.Now()) {
+			log.Println("Removing expired state", elem.State, "from active login sessions.")
+			removeLoginSession(elem.State)
+		}
+	}
 }

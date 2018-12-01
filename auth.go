@@ -17,11 +17,12 @@ import (
 )
 
 var hostname string
+
 var redisdb *redis.Client
 
 var logoutCookie = false
-var skipAuth []string
 
+var whitelist []string
 var blacklist []string
 
 type blacklistItem struct {
@@ -31,35 +32,36 @@ type blacklistItem struct {
 }
 
 func init() {
-	redisAddr := parseEnvVar("REDIS_ADDRESS")
-	redisPwd := parseEnvVar("REDIS_PASSWORD")
-	redisdb = redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: redisPwd,
-		DB:       0,
-	})
+	redisAddr := getenvOrDefault("REDIS_ADDRESS", "")
+	redisPwd := getenvOrDefault("REDIS_PASSWORD", "")
 
-	skipAuth = strings.Split(getenvOrDefault("SKIP_AUTH_URI", ""), " ")
-	log.Println("Skipping AUTH for URIs:", skipAuth)
+	if redisAddr != "" {
+		redisdb = redis.NewClient(&redis.Options{
+			Addr:     redisAddr,
+			Password: redisPwd,
+			DB:       0,
+		})
 
-	_, err := redisdb.Ping().Result()
-	if err != nil {
-		log.Fatal("Problem connecting to Redis: ", err.Error())
+		_, err := redisdb.Ping().Result()
+		if err != nil {
+			log.Fatal("Problem connecting to Redis: ", err.Error())
+		}
+
+		log.Println("Using Redis at", redisAddr)
+	} else {
+		log.Println("No Redis address specified, storing items locally.")
+		redisdb = nil
+	}
+
+	whitelist = strings.Split(getenvOrDefault("SKIP_AUTH_URI", ""), " ")
+	if len(whitelist[0]) > 0 {
+		log.Println("Skipping authorization for URIs:", whitelist)
 	}
 
 	envContent := os.Getenv("LOGOUT_COOKIE")
 	if envContent == "true" {
 		logoutCookie = true
 	}
-}
-
-func getenvOrDefault(key, fallback string) string {
-	value := os.Getenv(key)
-	if len(value) == 0 {
-		log.Println("No ", key, " specified, using '"+fallback+"' as default.")
-		return fallback
-	}
-	return value
 }
 
 // LoginHandler processes login requests
@@ -83,10 +85,10 @@ func newWildcardHandler() *wildcardHandler {
 func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 	var userToken string
 
-	if len(skipAuth[0]) > 0 {
-		for _, v := range skipAuth {
+	if len(whitelist[0]) > 0 {
+		for _, v := range whitelist {
 			if strings.HasPrefix(r.URL.String(), string(v)) {
-				log.Println(getUserIP(r), r.URL.String(), "URI is in SKIP_AUTH_URI array. ACCEPTING...")
+				log.Println(getUserIP(r), r.URL.String(), "URI is whitelisted. Accepted without authorization.")
 				returnStatus(w, http.StatusOK, "OK")
 				return
 			}
@@ -136,7 +138,7 @@ func AuthReqHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println(getUserIP(r), r.URL.String(), "Accepted.")
+	log.Println(getUserIP(r), r.URL.String(), "Authorized & accepted.")
 	w.Header().Set("X-Auth-Userinfo", string(uifClaim[:]))
 	returnStatus(w, http.StatusOK, "OK")
 }
@@ -220,14 +222,17 @@ func base64decode(str string) ([]byte, error) {
 func addToBlacklist(tokenHash string, exp time.Time) (bool, error) {
 	blKey := createNonce(8)
 	blItem := &blacklistItem{Key: blKey, JWTHash: tokenHash, Expiration: exp}
-	blJSON, err := json.Marshal(blItem)
-	if err != nil {
-		panic(err)
-	}
 
-	err = redisdb.HSet("blacklist", blKey, string(blJSON)).Err()
-	if err != nil {
-		return false, err
+	if redisdb != nil {
+		blJSON, err := json.Marshal(blItem)
+		if err != nil {
+			panic(err)
+		}
+
+		err = redisdb.HSet("blacklist", blKey, string(blJSON)).Err()
+		if err != nil {
+			return false, err
+		}
 	}
 
 	blacklist = append(blacklist, tokenHash)
@@ -270,8 +275,8 @@ func updateBlacklist() {
 }
 
 func checkBlacklist(jwtHash string) bool {
-	for _, e := range blacklist {
-		if jwtHash == e {
+	for _, elem := range blacklist {
+		if jwtHash == elem {
 			return true
 		}
 	}
