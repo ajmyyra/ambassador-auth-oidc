@@ -23,7 +23,7 @@ var redisdb *redis.Client
 var logoutCookie = false
 
 var whitelist []string
-var blacklist []string
+var blacklist []string // TODO Refactor to struct with expiration time, and add cleaner.
 
 type blacklistItem struct {
 	Key        string    `json:"key"`
