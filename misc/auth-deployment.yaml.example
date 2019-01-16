@@ -22,6 +22,8 @@ spec:
     type: RollingUpdate
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
         app: oidc-auth
     spec:
@@ -39,6 +41,8 @@ spec:
             value: "localhost:6379"
           - name: OIDC_SCOPES
             value: "profile email"
+          - name: SKIP_AUTH_URI
+            value: "/httpbin/ip"
           - name: JWT_HMAC_SECRET
             valueFrom:
               secretKeyRef:
