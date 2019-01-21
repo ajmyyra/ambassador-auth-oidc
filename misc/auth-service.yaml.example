@@ -12,6 +12,12 @@ metadata:
       auth_service: "oidc-auth:8080"
       allowed_headers:
       - "X-Auth-Userinfo"
+      ---
+      apiVersion: ambassador/v0
+      kind:  Mapping
+      name:  login_mapping
+      prefix: /login/
+      service: oidc-auth:8080
 spec:
   type: ClusterIP
   selector:
