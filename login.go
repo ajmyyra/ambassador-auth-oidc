@@ -149,18 +149,26 @@ func OIDCHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userInfo, err := oidcProvider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
-	if err != nil {
-		log.Println("Problem fetching userinfo:", err.Error())
-		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo.")
-		return
-	}
-
 	claims := json.RawMessage{}
-	if err = userInfo.Claims(&claims); err != nil {
-		log.Println("Problem getting userinfo claims:", err.Error())
-		returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo claims.")
-		return
+	if disableUserInfo {
+		if err = idToken.Claims(&claims); err != nil {
+			log.Println("Problem getting id_token claims:", err.Error())
+			returnStatus(w, http.StatusInternalServerError, "Not able to fetch id_token claims.")
+			return
+		}
+	} else {
+		userInfo, err := oidcProvider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
+		if err != nil {
+			log.Println("Problem fetching userinfo:", err.Error())
+			returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo.")
+			return
+		}
+
+		if err = userInfo.Claims(&claims); err != nil {
+			log.Println("Problem getting userinfo claims:", err.Error())
+			returnStatus(w, http.StatusInternalServerError, "Not able to fetch userinfo claims.")
+			return
+		}
 	}
 
 	userJwt := createSignedJWT(claims, idToken.Expiry)
