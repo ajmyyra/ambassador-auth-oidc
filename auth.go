@@ -21,6 +21,7 @@ var hostname string
 var redisdb *redis.Client
 
 var logoutCookie = false
+var disableUserInfo = false
 
 var whitelist []string
 var blacklist []string // TODO Refactor to struct with expiration time, and add cleaner.
@@ -61,6 +62,11 @@ func init() {
 	envContent := os.Getenv("LOGOUT_COOKIE")
 	if envContent == "true" {
 		logoutCookie = true
+	}
+
+	envContent = os.Getenv("DISABLE_USERINFO")
+	if envContent == "true" {
+		disableUserInfo = true
 	}
 }
 
