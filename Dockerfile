@@ -5,7 +5,7 @@ WORKDIR /go/src/ambassador-auth-oidc
 RUN go mod vendor
 RUN go build -o /go/bin/ambassador-auth-oidc
 
-FROM alpine:3.8
+FROM alpine:3.11
 LABEL org.label-schema.vcs-url="https://github.com/ajmyyra/ambassador-auth-oidc"
 LABEL org.label-schema.version="2.0"
 RUN apk update && apk add ca-certificates && rm -rf /var/cache/apk/*
