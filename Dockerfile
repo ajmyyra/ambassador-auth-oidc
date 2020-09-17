@@ -1,11 +1,11 @@
-FROM golang:1.10-alpine3.8 as builder
+FROM golang:1.15.2-alpine3.12 as builder
 RUN apk update && apk add git
 ADD *.go /go/src/ambassador-auth-oidc/
 WORKDIR /go/src/ambassador-auth-oidc
-ADD Gopkg.toml .
-ADD Gopkg.lock .
-RUN go get github.com/golang/dep/cmd/dep
-RUN dep ensure
+# Download dependencies
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
 RUN go build -o /go/bin/ambassador-auth-oidc
 
 FROM alpine:3.8
