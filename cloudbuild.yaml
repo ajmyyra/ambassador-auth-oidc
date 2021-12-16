@@ -1,0 +1,11 @@
+timeout: 4200s
+options:
+  machineType: 'N1_HIGHCPU_32'
+steps:
+- id: build-image
+  name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - ./build.sh
+  waitFor: ['-']
