@@ -1,2 +1,3 @@
 ambassador-auth-oidc
 vendor
+.idea/*

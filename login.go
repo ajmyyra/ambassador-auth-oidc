@@ -208,14 +208,16 @@ func beginOIDCLogin(w http.ResponseWriter, r *http.Request, origURL string) {
 
 func createCookie(sessionJwt string, expiration time.Time, domain string) *http.Cookie {
 
-	same_site_cookie_param := getenvOrDefault("SAME_SITE_COOKIE_PARAM", "lax")
-	var same_site http.SameSite
+	EnvVarName := "SAME_SITE_COOKIE_PARAM"
+	sameSiteCookieParam := getenvOrDefault(EnvVarName, "lax")
+	log.Printf("%s env variable's value set to %s\n", EnvVarName, sameSiteCookieParam)
+	var sameSite http.SameSite
 	var isSecure bool
-	if strings.EqualFold(same_site_cookie_param, "none") {
-		same_site = http.SameSiteNoneMode
+	if strings.EqualFold(sameSiteCookieParam, "none") {
+		sameSite = http.SameSiteNoneMode
 		isSecure = true
 	} else {
-		same_site = http.SameSiteLaxMode
+		sameSite = http.SameSiteLaxMode
 		isSecure = false
 	}
 
@@ -225,9 +227,11 @@ func createCookie(sessionJwt string, expiration time.Time, domain string) *http.
 		Path:     "/",
 		Domain:   domain,
 		Expires:  expiration,
-		SameSite: same_site,
+		SameSite: sameSite,
 		Secure:   isSecure,
 	}
+
+	log.Printf("cookie: SameSite: %v, Secure: %v\n", cookie.SameSite, cookie.Secure)
 
 	return cookie
 }
