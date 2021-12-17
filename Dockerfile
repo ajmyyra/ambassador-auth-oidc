@@ -12,7 +12,7 @@ RUN go version
 RUN go env
 RUN go mod download
 #RUN GOOS=linux GOARCH=amd64 go build -o /go/bin/ambassador-auth-oidc
-RUN go build -o /go/bin/ambassador-auth-oidc
+RUN CGO_ENABLED=0 go build -o /go/bin/ambassador-auth-oidc
 
 FROM alpine:3.15.0
 LABEL org.label-schema.vcs-url="https://github.com/doc-ai/ambassador-auth-oidc"
