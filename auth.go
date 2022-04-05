@@ -195,7 +195,8 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, newCookie)
 	}
 
-	returnStatus(w, http.StatusOK, "Succesfully logged out.")
+	// redirect to login page
+	beginOIDCLogin(w, r, r.URL.Path)
 }
 
 func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
