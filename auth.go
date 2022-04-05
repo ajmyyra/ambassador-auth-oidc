@@ -195,8 +195,16 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, newCookie)
 	}
 
-	// redirect to login page
-	beginOIDCLogin(w, r, r.URL.Path)
+	// if we are using auth0, we need to redirect to auth0 logout
+	// if OIDC_PROVIDER has auth0 in the url, we need to redirect to auth0 logout
+	if strings.Contains(os.Getenv("OIDC_PROVIDER"), "auth0") {
+		url := os.Getenv("OIDC_PROVIDER") + "v2/logout"
+		url += "?client_id=" + os.Getenv("CLIENT_ID")
+		url += "&returnTo=" + os.Getenv("SELF_URL")
+		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	} else {
+		returnStatus(w, http.StatusOK, "Succesfully logged out.")
+	}
 }
 
 func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
