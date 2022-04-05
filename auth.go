@@ -196,7 +196,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// redirect to login page
-	beginOIDCLogin(w, r, r.URL.Path)
+	http.Redirect(w, r, os.Getenv("SELF_URL"), http.StatusFound)
 }
 
 func returnStatus(w http.ResponseWriter, statusCode int, errorMsg string) {
