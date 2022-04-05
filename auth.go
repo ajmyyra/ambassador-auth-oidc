@@ -198,7 +198,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	// if we are using auth0, we need to redirect to auth0 logout
 	// if OIDC_PROVIDER has auth0 in the url, we need to redirect to auth0 logout
 	if strings.Contains(os.Getenv("OIDC_PROVIDER"), "auth0") {
-		url := os.Getenv("OIDC_PROVIDER") + "/v2/logout"
+		url := os.Getenv("OIDC_PROVIDER") + "v2/logout"
 		url += "?client_id=" + os.Getenv("CLIENT_ID")
 		url += "&returnTo=" + os.Getenv("SELF_URL")
 		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
