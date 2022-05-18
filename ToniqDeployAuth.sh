@@ -55,8 +55,6 @@ aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS
 echo "Get dockerhub.com credentials from secret"
 aws secretsmanager get-secret-value --secret-id /${BUILD_AWS_ENV}/toniq-apiv1/dockercred/docai --region us-east-1 | grep SecretString | cut -f 4 -d '"' | sudo docker login --username anthembuildacct --password-stdin
 
-PYPI_PASSWORD=`aws secretsmanager get-secret-value --secret-id /${BUILD_AWS_ENV}/toniq-apiv1/pypi-password/docai --region us-east-1 | grep SecretString | cut -f 4 -d '"'`
-
 ##############################################################
 # HUB
 ##############################################################
@@ -66,4 +64,4 @@ echo "Build and publish to ECR process for HUB..."
 ECR_PREFIX=${ECR_REGISTRY}/antm-docai-${BUILD_AWS_ENV}-ecr-
 
 echo "ECR_PREFIX: ${ECR_PREFIX}"
-sudo ./generic_build.sh ${ECR_PREFIX} ${PYPI_PASSWORD}
+sudo ./build.sh ${ECR_PREFIX}
