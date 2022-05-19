@@ -4,8 +4,8 @@ go 1.17
 
 require (
 	github.com/coreos/go-oidc v2.0.0+incompatible
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-redis/redis v6.14.2+incompatible
+	github.com/golang-jwt/jwt/v4 v4.4.1
 	github.com/google/uuid v1.0.0
 	github.com/gorilla/handlers v1.4.0
 	github.com/gorilla/mux v1.6.2
